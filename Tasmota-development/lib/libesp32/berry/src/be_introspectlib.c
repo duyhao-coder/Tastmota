@@ -182,11 +182,7 @@ static int m_getmodule(bvm *vm)
     if (top >= 1) {
         bvalue *v = be_indexof(vm, 1);
         if (var_isstr(v)) {
-            bbool no_cache = bfalse;
-            if (top >= 2) {
-                no_cache = be_tobool(vm, 2);
-            }
-            int ret = be_module_load_nocache(vm, var_tostr(v), no_cache);
+            int ret = be_module_load(vm, var_tostr(v));
             if (ret == BE_OK) {
                 be_return(vm);
             }

@@ -1,75 +1,111 @@
-/*********************************************************************************************\
- * RS485 Driver for Tasmota (XDRV_123)
-\*********************************************************************************************/
-
 #ifdef USE_RS485
 
-#include "TasmotaModbus.h"
-
 #define XDRV_123 123
-#define RS485_MODBUS_SPEED 9600
 
-bool rs485_active = false;
-TasmotaModbus *RS485Modbus = nullptr;
+#include <TasmotaModbus.h>
 
-// Lưu lại chân RX/TX do người dùng chọn trên web
-uint8_t rs485_rx_pin = 0;
-uint8_t rs485_tx_pin = 0;
+#define MAX_SENSORS 100
 
-void RS485DetectGpio(void) {
-  rs485_rx_pin = 0;
-  rs485_tx_pin = 0;
-  for (uint32_t i = 0; i < MAX_GPIO_PIN; i++) {
-    if (Settings->gpio_pin[i] == GPIO_RS485_RX) {
-      rs485_rx_pin = GpioPin(i);
+struct RS485t
+{
+    bool active = false;
+    uint8_t tx = 0;
+    uint8_t rx = 0;
+    TasmotaModbus *Rs485Modbus = nullptr;
+    bool requestSent[MAX_SENSORS] = {false};
+    uint32_t _active[3];
+    uint32_t lastRequestTime;
+} RS485;
+
+void Rs485Init(void)
+{
+    RS485.active = false;
+    if (PinUsed(GPIO_RS485_RX) && PinUsed(GPIO_RS485_TX))
+    {
+        if (RS485.active)
+        {
+            AddLog(LOG_LEVEL_ERROR, "RS485: RS485 serial can be configured only on 1 time");
+        }
+        if (TasmotaGlobal.rs485_enabled)
+        {
+            AddLog(LOG_LEVEL_ERROR, "RS485: RS485 serial failed because RX/TX already configured");
+        }
+        else
+        {
+            RS485.rx = Pin(GPIO_RS485_RX);
+            RS485.tx = Pin(GPIO_RS485_TX);
+            RS485.active = true;
+        }
     }
-    if (Settings->gpio_pin[i] == GPIO_RS485_TX) {
-      rs485_tx_pin = GpioPin(i);
+
+    if (RS485.active)
+    {
+        RS485.Rs485Modbus = new TasmotaModbus(RS485.rx, RS485.tx);
+        uint8_t result = RS485.Rs485Modbus->Begin();
+        if (result)
+        {
+            if (2 == result)
+            {
+                ClaimSerial();
+            }
+            TasmotaGlobal.rs485_enabled = true;
+            AddLog(LOG_LEVEL_INFO, PSTR("RS485: RS485 using GPIO%i(RX) and GPIO%i(TX)"), RS485.rx, RS485.tx);
+        }
+        else
+        {
+            delete RS485.Rs485Modbus;
+            RS485.Rs485Modbus = nullptr;
+            RS485.active = false;
+        }
     }
-  }
 }
 
-void RS485Init(void) {
-  RS485DetectGpio();
-  rs485_active = false;
-  if (rs485_rx_pin && rs485_tx_pin) {
-    RS485Modbus = new TasmotaModbus(rs485_rx_pin, rs485_tx_pin);
-    uint8_t result = RS485Modbus->Begin(RS485_MODBUS_SPEED);
-    if (result) {
-      if (2 == result) {
-        ClaimSerial();
-      }
-      rs485_active = true;
+bool isWaitingResponse(int sensor_id)
+{
+    for (int i = 0; i < MAX_SENSORS; i++)
+    {
+        if (RS485.requestSent[sensor_id])
+            continue;
+        if (RS485.requestSent[i])
+            return true;
     }
-  }
+    return false;
 }
 
-void RS485ShowWeb(void) {
-  WSContentSend_PD(PSTR("{s}RS485 Status{m}%s{e}"), rs485_active ? "Active" : "Inactive");
-  WSContentSend_PD(PSTR("{s}RS485 RX Pin{m}%u{e}"), rs485_rx_pin);
-  WSContentSend_PD(PSTR("{s}RS485 TX Pin{m}%u{e}"), rs485_tx_pin);
+void Rs485SetActive(uint32_t addr)
+{
+    addr &= 0x77;
+    RS485._active[addr / 32] |= (1 << (addr % 32));
 }
 
-void RS485ShowJSON(void) {
-  ResponseAppend_P(PSTR(",\"RS485\":{\"Status\":\"%s\",\"RX\":%u,\"TX\":%u}"),
-    rs485_active ? "Active" : "Inactive", rs485_rx_pin, rs485_tx_pin);
+bool Rs485Active(uint32_t addr)
+{
+    addr &= 0x7F;
+    return (RS485._active[addr / 32] & (1 << (addr % 32)));
+}
+void Rs485SetActiveFound(uint32_t addr, const char *types)
+{
+    Rs485SetActive(addr);
+    AddLog(LOG_LEVEL_INFO, PSTR("RS485: %s found at 0x%02x"), types, addr);
 }
 
-bool Xdrv123(uint32_t function) {
-  switch (function) {
-    case FUNC_INIT:
-      RS485Init();
-      break;
-    case FUNC_WEB_SENSOR:
-      RS485ShowWeb();
-      break;
-    case FUNC_JSON_APPEND:
-      RS485ShowJSON();
-      break;
-    default:
-      break;
-  }
-  return true;
+bool Xdrv123(uint32_t function)
+{
+    bool result = false;
+    if (FUNC_PRE_INIT == function)
+    {
+        Rs485Init();
+    }
+    else if (RS485.active)
+    {
+        switch (function)
+        {
+        case FUNC_ACTIVE:
+            result = true;
+            break;
+        }
+    }
+    return result;
 }
 
-#endif  // USE_RS485
+#endif

@@ -1409,11 +1409,12 @@ void SettingsDefaultSet2(void) {
   memset(&Settings->sensors, 0xFF, 32);  // Enable all possible sensors
 #ifndef FIRMWARE_MINIMAL    // not needed in minimal/safeboot because of disabled feature and Settings are not saved anyways
   SettingsEnableAllI2cDrivers();
+  SettingsEnableAllRS485Drivers();
 #endif // FIRMWARE_MINIMAL
 
   // Tuya
 #ifndef FIRMWARE_MINIMAL    // not needed in minimal/safeboot because of disabled feature and Settings are not saved anyways
-  flag3.tuya_apply_o20 |= TUYA_SETOPTION_20;
+      flag3.tuya_apply_o20 |= TUYA_SETOPTION_20;
   flag5.tuya_allow_dimmer_0 |= TUYA_ALLOW_DIMMER_0;
   flag5.tuya_exclude_from_mqtt |= TUYA_SETOPTION_137;
   flag3.tuya_serial_mqtt_publish |= MQTT_TUYA_RECEIVED;
@@ -1519,6 +1520,12 @@ void SettingsEnableAllI2cDrivers(void) {
   Settings->i2c_drivers[0] = I2CDRIVERS_0_31;
   Settings->i2c_drivers[1] = I2CDRIVERS_32_63;
   Settings->i2c_drivers[2] = I2CDRIVERS_64_95;
+}
+
+void SettingsEnableAllRS485Drivers(void)
+{
+  Settings->rs485_drivers[0] = RS485DRIVERS_0_31;
+  Settings->rs485_drivers[1] = RS485DRIVERS_32_63;
 }
 
 /********************************************************************************************/

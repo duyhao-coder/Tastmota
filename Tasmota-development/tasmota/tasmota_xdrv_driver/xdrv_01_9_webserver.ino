@@ -222,17 +222,15 @@ const char HTTP_SCRIPT_INFO_END[] PROGMEM =
   #include "./html_compressed/HTTP_HEAD_LAST_SCRIPT32.h"
   #include "./html_compressed/HTTP_HEAD_STYLE1.h"
   #include "./html_compressed/HTTP_HEAD_STYLE2.h"
-  #include "./html_compressed/HTTP_HEAD_STYLE_WIFI.h"
 #else
   #include "./html_uncompressed/HTTP_HEAD_LAST_SCRIPT.h"
   #include "./html_uncompressed/HTTP_HEAD_LAST_SCRIPT32.h"
   #include "./html_uncompressed/HTTP_HEAD_STYLE1.h"
   #include "./html_uncompressed/HTTP_HEAD_STYLE2.h"
-  #include "./html_uncompressed/HTTP_HEAD_STYLE_WIFI.h"
 #endif
 
-#if defined(USE_ZIGBEE) || defined(USE_LORAWAN_BRIDGE)
-// Styles used for Zigbee and LoRaWan Web UI
+#ifdef USE_ZIGBEE
+// Styles used for Zigbee Web UI
 // Battery icon from https://css.gg/battery
 //
   #ifdef USE_UNISHOX_COMPRESSION
@@ -253,7 +251,7 @@ const char HTTP_HEAD_STYLE3[] PROGMEM =
 
   "</head>"
   "<body>"
-  "<div style='background:#%06x;text-align:left;display:inline-block;color:#%06x;min-width:340px;position:relative;'>"  // COLOR_BACKGROUND, COLOR_TEXT
+  "<div style='background:#%06x;text-align:left;display:inline-block;color:#%06x;min-width:340px;'>"  // COLOR_BACKGROUND, COLOR_TEXT
 #ifdef FIRMWARE_MINIMAL
 #ifdef FIRMWARE_SAFEBOOT
   "<span style='text-align:center;color:#%06x;'><h3>" D_SAFEBOOT "</h3></span>"  // COLOR_TEXT_WARNING
@@ -270,8 +268,7 @@ const char HTTP_HEAD_STYLE3[] PROGMEM =
 #endif
 */
   "<h3>%s</h3>"    // Module name
-  "<h2><img src='https://i.postimg.cc/3RYHZGKR/logo.png' width='200px' height='200px'></h2>";   // Device name
-
+  "<h2>%s</h2>";   // Device name
 
 const char HTTP_MENU_HEAD[] PROGMEM =
   "<div style='padding:0px 5px;text-align:center;'><h3><hr/>%s<hr/></h3></div>";
@@ -448,18 +445,6 @@ const char HTTP_END[] PROGMEM =
 const char HTTP_DEVICE_CONTROL[] PROGMEM = "<td style='width:%d%%'><button id='o%d' onclick='la(\"&o=%d\");'>%s%s</button></td>";  // ?o is related to WebGetArg(PSTR("o"), tmp, sizeof(tmp))
 const char HTTP_DEVICE_STATE[] PROGMEM = "<td style='width:%d%%;text-align:center;font-weight:%s;font-size:%dpx'>%s</td>";
 
-const char HTTP_STATUS_STICKER[] PROGMEM =
-  "<span style='"
-  "margin:2px;"
-  "cursor:default;"
-  "padding:1px 2px;"
-  "border-color:#%06x;border-radius:5px;border-style:solid;border-width:1px;"
-  "' "
-  "%s"    // optional 'title' attributes
-  ">"
-  "%s"
-  "</span>";
-
 enum ButtonTitle {
   BUTTON_RESTART, BUTTON_RESET_CONFIGURATION,
   BUTTON_MAIN, BUTTON_CONFIGURATION, BUTTON_INFORMATION, BUTTON_FIRMWARE_UPGRADE, BUTTON_MANAGEMENT,
@@ -515,7 +500,6 @@ struct WEB {
   bool upload_services_stopped = false;
   bool reset_web_log_flag = false;                  // Reset web console log
   bool initial_config = false;
-  bool cflg;
 } Web;
 
 /*********************************************************************************************/
@@ -646,13 +630,6 @@ void WebServer_on(const char * prefix, void (*func)(void), uint8_t method = HTTP
   Webserver->on(prefix, (HTTPMethod) method, func);
 #endif  // ESP32
 }
-
-#ifdef ESP32
-void WebServer_removeRoute(const char * prefix, uint8_t method = HTTP_ANY) {
-  if (Webserver == nullptr) { return; }
-  Webserver->removeRoute(prefix, (HTTPMethod) method);
-}
-#endif  // ESP32
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
@@ -995,10 +972,7 @@ void WSContentSendStyle_P(const char* formatP, ...) {
   WSContentSend_P(HTTP_HEAD_STYLE2, WebColor(COL_BUTTON), WebColor(COL_BUTTON_TEXT), WebColor(COL_BUTTON_HOVER),
                   WebColor(COL_BUTTON_RESET), WebColor(COL_BUTTON_RESET_HOVER), WebColor(COL_BUTTON_SAVE), WebColor(COL_BUTTON_SAVE_HOVER),
                   WebColor(COL_BUTTON));
-#ifdef USE_WEB_STATUS_LINE_WIFI
-  WSContentSend_P(HTTP_HEAD_STYLE_WIFI, WebColor(COL_FORM), WebColor(COL_TITLE));
-#endif
-#if defined(USE_ZIGBEE) || defined(USE_LORAWAN_BRIDGE)
+#ifdef USE_ZIGBEE
   WSContentSend_P(HTTP_HEAD_STYLE_ZIGBEE);
 #endif // USE_ZIGBEE
   if (formatP != nullptr) {
@@ -1133,8 +1107,8 @@ void WSContentSend_Voltage(const char *types, float f_voltage) {
 
 /*-------------------------------------------------------------------------------------------*/
 
-void WSContentSend_Current(const char *types, float f_current) {
-  WSContentSend_PD(HTTP_SNS_F_CURRENT, types, Settings->flag2.current_resolution, &f_current);
+void WSContentSend_CurrentMA(const char *types, float f_current) {
+  WSContentSend_PD(HTTP_SNS_F_CURRENT_MA, types, Settings->flag2.current_resolution, &f_current);
 }
 
 /*-------------------------------------------------------------------------------------------*/
@@ -1175,22 +1149,6 @@ void WSContentStop(void) {
   WSContentSend_P(HTTP_END, TasmotaGlobal.version, TasmotaGlobal.image_name);
   WSContentEnd();
 }
-
-#ifdef USE_WEB_STATUS_LINE
-/*-------------------------------------------------------------------------------------------*/
-// Display a Sticker in the Status bar (upper right) with a name (MQTT, TlS, VPN)
-// and an optional tooltip text to indicate the duration of the connection (or -1 if none)
-//
-// Convert seconds to a string representing days, hours or minutes.
-// The string will contain the most coarse time only, rounded down (61m == 01h, 01h37m == 01h).
-void WSContentStatusSticker(const char *msg, const char *attr = NULL);
-void WSContentStatusSticker(const char *msg, const char *attr)
-{
-  if (msg == NULL) { return; }
-  if (attr == NULL) { attr = ""; }
-  WSContentSend_P(HTTP_STATUS_STICKER, 0xAAAAAA, attr, msg);
-}
-#endif // USE_WEB_STATUS_LINE
 
 /*********************************************************************************************/
 
@@ -1924,34 +1882,6 @@ bool HandleRootStatusRefresh(void) {
   if (msg_exec_javascript) {
     WSContentSend_P(PSTR("\">"));
   }
-
-#ifdef USE_WEB_STATUS_LINE
-  // create a first DIV for the upper left status bar, positioned left-justified
-  // we use the same string literal for both lines to reduce Flash
-  WSContentSend_P(PSTR("<div style='font-size:9px;font-weight:bold;text-align:%s;position:absolute;top:0;%s:0;display:inline-flex;'>"), PSTR("left"), PSTR("left"));
-#ifdef USE_WEB_STATUS_LINE_WIFI
-  if (Settings->flag4.network_wifi) {
-    int32_t rssi = WiFi.RSSI();
-    WSContentSend_P(PSTR("<div class='wifi' title='%s: " D_RSSI " %d%%, %d dBm' style='padding:0 2px 0 2px;'><div class='arc a3 %s'></div><div class='arc a2 %s'></div><div class='arc a1 %s'></div><div class='arc a0 active'></div></div>"),
-                          SettingsTextEscaped(SET_STASSID1 + Settings->sta_active).c_str(),                      
-                          WifiGetRssiAsQuality(rssi), rssi,
-                          rssi >= -55 ? "active" : "",
-                          rssi >= -70 ? "active" : "",
-                          rssi >= -85 ? "active" : "");
-  }
-#endif // USE_WEB_STATUS_LINE_WIFI
-#ifdef USE_WEB_STATUS_LINE_HEAP
-  WSContentSend_P("<span>&nbsp;%ik</span>", ESP_getFreeHeap() / 1024);
-#endif // USE_WEB_STATUS_LINE_HEAP
-  // display here anything that goes on the left side
-  XsnsXdrvCall(FUNC_WEB_STATUS_LEFT);
-  WSContentSend_P(PSTR("</div>"));
-
-  // create a second DIV for the upper right status bar, positioned right-justified
-  WSContentSend_P(PSTR("<div style='font-size:9px;font-weight:bold;text-align:%s;position:absolute;top:0;%s:0;display:inline-flex;'>"), PSTR("right"), PSTR("right"));
-  XsnsXdrvCall(FUNC_WEB_STATUS_RIGHT);
-  WSContentSend_P(PSTR("</div>"));
-#endif // USE_WEB_STATUS_LINE
 
   WSContentSend_P(PSTR("{t}"));        // <table style='width:100%'>
   WSContentSeparator(3);               // Reset seperator to ignore previous outputs 
@@ -3807,22 +3737,16 @@ void HandleConsoleRefresh(void) {
     index = 0;
     Web.reset_web_log_flag = true;
   }
-  Web.cflg = (index);
+  bool cflg = (index);
   char* line;
   size_t len;
   while (GetLog(Settings->weblog_level, &index, &line, &len)) {
-    if (!LogDataJsonPrettyPrint(line, len -1, WSContentSendLDJsonPPCb)) {
-      WSContentSendLDJsonPPCb(line, len -1);
-    }
+    if (cflg) { WSContentSend_P(PSTR("\n")); }
+    WSContentSend(line, len -1);
+    cflg = true;
   }
   WSContentSend_P(PSTR("}1"));
   WSContentEnd();
-}
-
-void WSContentSendLDJsonPPCb(const char* line, uint32_t len) {
-  if (Web.cflg) { WSContentSend_P(PSTR("\n")); }
-  WSContentSend(line, len);
-  Web.cflg = true;
 }
 
 /********************************************************************************************/
@@ -4191,7 +4115,7 @@ void CmndWeblog(void) {
 /*-------------------------------------------------------------------------------------------*/
 
 void CmndWebRefresh(void) {
-  if ((XdrvMailbox.payload > 399) && (XdrvMailbox.payload <= 65000)) {
+  if ((XdrvMailbox.payload > 999) && (XdrvMailbox.payload <= 65000)) {
     Settings->web_refresh = XdrvMailbox.payload;
   }
   ResponseCmndNumber(Settings->web_refresh);

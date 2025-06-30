@@ -494,9 +494,18 @@ void MqttSubscribeLib(const char *topic) {
   MqttClient.subscribe("$iothub/methods/POST/#");
   SettingsUpdateText(SET_MQTT_FULLTOPIC, SettingsText(SET_MQTT_CLIENT));
   SettingsUpdateText(SET_MQTT_TOPIC, SettingsText(SET_MQTT_CLIENT));
-#else
+#endif // USE_MQTT_AZURE_IOT
+
+#ifdef USE_MQTT_TB_IOT
+  MqttClient.subscribe("v1/devices/me/attributes");
+  MqttClient.subscribe("v1/devices/me/attributes/response/+");
+  MqttClient.subscribe("v1/devices/me/rpc/request/+");
+  MqttClient.subscribe("v1/devices/me/rpc/response/+");
+#endif // USE_MQTT_TB_IOT
+
+#if !defined(USE_MQTT_AZURE_IOT) && !defined(USE_MQTT_TB_IOT)
   MqttClient.subscribe(topic);
-#endif  // USE_MQTT_AZURE_IOT
+#endif
   MqttClient.loop();  // Solve LmacRxBlk:1 messages
 }
 
@@ -535,6 +544,125 @@ bool MqttPublishLib(const char* topic, const uint8_t* payload, unsigned int plen
   }
   topic = topicString.c_str();
 #endif  // USE_MQTT_AZURE_IOT
+
+#ifdef USE_MQTT_TB_IOT
+  String sourceTopicString = String(topic);
+  // step 1: extract prefix from original topic, should be tele/cmnd/stat
+  int startIndex = 0;
+  int endIndex = sourceTopicString.indexOf("/");
+  String prefix = sourceTopicString.substring(0, endIndex);
+  if (endIndex == -1){
+    AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Topic without a prefix. Ignore it."));
+    return true;
+  }
+
+  // step 2: extract attribute/command from topic suffix
+  // it can be STATE/RESULT/INFO1/INFO2/INFO3 or any
+  startIndex = sourceTopicString.lastIndexOf("/");
+  endIndex = sourceTopicString.length();
+  if (startIndex == -1) {
+    AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Topic without attribute/command name."));
+    return true;
+  }
+  String attr = sourceTopicString.substring(startIndex+1, endIndex);
+  String payloadStr = String((char*)payload);
+  JsonParser parser((char*)payloadStr.c_str());
+  JsonParserObject payloadRoot = parser.getRootObject();
+  if (!payloadRoot) { // ignore any message without json format payload
+    return true;
+  }
+
+  // step 3 : process based on prefix and attr/command
+  if (prefix == "tele") {
+    if (attr == "SENSOR") {
+      strlcpy((char*)topic, "v1/devices/me/telemetry", 25);
+      
+      // need flatten sensor info in json payload to format like
+      // {sensor_name-info1:value1, sensor_name-info2:value2}  
+      String newPayload = "{";
+      bool firstKey = true;
+
+      for (auto sensorKey : payloadRoot) {
+        // sensor is of type JsonParserKey
+        const char *sensorName = sensorKey.getStr();
+        JsonParserObject sensors = sensorKey.getValue().getObject();
+
+        if (sensors) {
+          for (auto subsensorKeyToken : sensors) {
+            const char * subsensorKey = subsensorKeyToken.getStr();
+            JsonParserToken subsensor = subsensorKeyToken.getValue();
+            if (subsensor.isNull()) {
+              AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Sensor %s info %s is null."), sensorName, subsensorKey);
+              continue;
+            }
+            if (subsensor.isObject()) {
+              // If there is a nested json on sensor data, second level entitites will be created
+              JsonParserObject subsensors = subsensor.getObject();
+              char sensorInfo[100];
+              for (auto subsensor2Key : subsensors) {
+                if (subsensor2Key.isNull()) {
+                  AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Sensor %s info %s.%s is null."), sensorName, subsensorKey, subsensor2Key.getStr());
+                  continue;
+                }
+                if (firstKey) {
+                  if (subsensor.isNum() || subsensor.isBool()) {
+                    snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR("\"%s-%s-%s\":%s"), sensorName, subsensorKey, subsensor2Key.getStr(), subsensor.getStr());
+                  } else {
+                    snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR("\"%s-%s-%s\":\"%s\""), sensorName, subsensorKey, subsensor2Key.getStr(), subsensor.getStr());
+                  }
+                  firstKey = false;
+                } else {
+                  if (subsensor.isNum() || subsensor.isBool()) {
+                    snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR(", \"%s-%s-%s\":%s"), sensorName, subsensorKey, subsensor2Key.getStr(), subsensor.getStr());
+                  } else {
+                    snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR(", \"%s-%s-%s\":\"%s\""), sensorName, subsensorKey, subsensor2Key.getStr(), subsensor.getStr());
+                  }
+                  
+                }
+                newPayload += String(sensorInfo);
+              }
+            } else {
+              char sensorInfo[100];
+              if (firstKey) {
+                if (subsensor.isNum() || subsensor.isBool()) {
+                  snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR("\"%s-%s\":%s"), sensorName, subsensorKey, subsensor.getStr());
+                } else {
+                  snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR("\"%s-%s\":\"%s\""), sensorName, subsensorKey, subsensor.getStr());
+                }
+                firstKey = false;
+              } else {
+                if (subsensor.isNum() || subsensor.isBool()) {
+                  snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR(", \"%s-%s\":%s"), sensorName, subsensorKey, subsensor.getStr());
+                } else {
+                  snprintf_P(sensorInfo, sizeof(sensorInfo), PSTR(", \"%s-%s\":\"%s\""), sensorName, subsensorKey, subsensor.getStr());
+                }
+              }
+              newPayload += String(sensorInfo);
+            }
+          }
+        } else { // ignore non sensor info
+          continue;
+        }
+      }
+      newPayload += "}";
+      plength = newPayload.length();
+      strlcpy((char*)payload, newPayload.c_str(), plength+1);
+    } else { // attr is "STATE" or "INFO1/2/3" or any 
+      strlcpy((char*)topic, "v1/devices/me/attributes", 25);
+    }
+  } else if (prefix == "stat") {
+    if (attr == "RESULT") { // send as attribute update
+      strlcpy((char*)topic, "v1/devices/me/attributes", 25);
+    } else {
+      // ignore other command/attribute
+      return true;
+    }
+  } else {
+    // ignore all other messages
+    return true;
+  }
+
+#endif  // USE_MQTT_TB_IOT
 
   if (!MqttClient.beginPublish(topic, plength, retained)) {
 //    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Connection lost or message too large"));
@@ -593,6 +721,7 @@ void MqttDataHandler(char* mqtt_topic, uint8_t* mqtt_data, unsigned int data_len
 //  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "BufferSize %d, Topic |%s|, Length %d, data_len %d"), MqttClient.getBufferSize(), mqtt_topic, strlen(mqtt_topic), data_len);
 
   char topic[TOPSZ];
+  //printf("Topic received |%s|\n", mqtt_topic);
 #ifdef USE_MQTT_AZURE_IOT
   #ifdef USE_AZURE_DIRECT_METHOD 
       String fullTopicString = String(mqtt_topic);
@@ -630,9 +759,63 @@ void MqttDataHandler(char* mqtt_topic, uint8_t* mqtt_data, unsigned int data_len
   }
   strlcpy(topic, newTopic.c_str(), sizeof(topic));
   #endif
-#else
+#endif // USE_MQTT_AZURE_IOT 
+
+#ifdef USE_MQTT_TB_IOT
+  String fullTopicString = String(mqtt_topic);
+  mqtt_data[data_len] = 0;
+  //printf("Full topic '%s' payload '%s'\n", fullTopicString.c_str(), mqtt_data);
+  JsonParser mqttJsonData((char*) mqtt_data);
+  JsonParserObject rootObject = mqttJsonData.getRootObject();
+  if (!rootObject.isValid()) {
+    // ignore message with non json payload
+    AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Invalid RPC json payload %s"), (char*)mqtt_data);
+    return;
+  }
+
+  char requestID[10];
+  if (fullTopicString.startsWith("v1/devices/me/rpc/request/")) { // received server side RPC 
+    // get request ID from topic (format like v1/devices/me/rpc/request/$request_id)
+    int lastSlashIndex = fullTopicString.lastIndexOf('/');
+    if (lastSlashIndex != -1) {
+      String requestIDStr = fullTopicString.substring(lastSlashIndex + 1);
+      strlcpy(requestID, requestIDStr.c_str(), sizeof(requestID));
+      // get RPC method and params from payload
+      topic[0] = '/';
+      String methodStr = rootObject.getStr("method", "");
+      const char* method = methodStr.c_str();
+      strlcpy(topic+1, method, strlen(method)+1);
+      String mqttDataStr= rootObject.getStr("params", "");
+      strncpy(reinterpret_cast<char*>(mqtt_data),mqttDataStr.c_str(),data_len);
+      mqtt_data[data_len] = 0;
+      //printf("RPC method: %s params: %s\n", method, mqttDataStr.c_str());
+    } else {
+      // invalid request
+      AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Invalid RPC request topic"), mqtt_topic);
+      return;
+    }
+  } else if (fullTopicString == "v1/devices/me/attributes") { 
+    // received attribute update from server 
+    // extract only first attribute to process
+    for (auto key : rootObject) {
+      // key is of type JsonParserKey
+      const char *attributeName = key.getStr();
+      JsonParserToken valueToken = key.getValue();
+      const char *attributeValue = valueToken.getStr();
+      topic[0] = '/';
+      strlcpy(topic+1, attributeName, strlen(attributeValue));
+      data_len = strlen(attributeValue);
+      strncpy(reinterpret_cast<char*>(mqtt_data), attributeValue, data_len);
+      mqtt_data[data_len] = 0;
+      //printf("Topic name: %s value: %s\n", topic, mqtt_data);
+      break;
+    }
+  }
+#endif  // USE_MQTT_TB_IOT
+
+#if !defined(USE_MQTT_AZURE_IOT) && !defined(USE_MQTT_TB_IOT)
   strlcpy(topic, mqtt_topic, sizeof(topic));
-#endif  // USE_MQTT_AZURE_IOT
+#endif
   mqtt_data[data_len] = 0;
 
   if (Mqtt.disable_logging) {
@@ -666,6 +849,15 @@ void MqttDataHandler(char* mqtt_topic, uint8_t* mqtt_data, unsigned int data_len
   String response_topic = "$iothub/methods/res/200/?$rid=" + req_id;
   String payload = "{\"status\": \"success\"}";
   MqttClient.publish(response_topic.c_str(),payload.c_str());
+  #endif
+
+  
+  #ifdef USE_MQTT_TB_IOT // Send response for RPC method
+  if (fullTopicString.startsWith("v1/devices/me/rpc/request/")) { // response server side RPC 
+    String response_topic = "v1/devices/me/rpc/response/" + String(requestID);
+    String payload = "{\"status\": \"success\"}";
+    MqttClient.publish(response_topic.c_str(), payload.c_str());
+  }
   #endif
 }
 
@@ -2116,17 +2308,6 @@ bool Xdrv02(uint32_t function)
       case FUNC_WEB_ADD_HANDLER:
         WebServer_on(PSTR("/" WEB_HANDLE_MQTT), HandleMqttConfiguration);
         break;
-#ifdef USE_WEB_STATUS_LINE
-      case FUNC_WEB_STATUS_RIGHT:
-        if (MqttIsConnected()) {
-          if (MqttTLSEnabled()) {
-            WSContentStatusSticker(PSTR(D_MQTT_TLS_ENABLE));
-          } else {
-            WSContentStatusSticker(PSTR(D_MQTT));
-          }
-        }
-        break;
-#endif  // USE_WEB_STATUS_LINE
 #endif  // not FIRMWARE_MINIMAL
 #endif  // USE_WEBSERVER
       case FUNC_COMMAND:

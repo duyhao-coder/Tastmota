@@ -423,10 +423,10 @@ class Tasmota
   # Execute custom command
   def exec_cmd(cmd, idx, payload)
     if self._ccmd
+      import json
+      var payload_json = json.load(payload)
       var cmd_found = self.find_key_i(self._ccmd, cmd)  # name of the command as registered (case insensitive search)
       if cmd_found != nil
-        import json
-        var payload_json = json.load(payload)
         self.resolvecmnd(cmd_found)   # set the command name in XdrvMailbox.command as it was registered first
         self._ccmd[cmd_found](cmd_found, idx, payload, payload_json)
         return true
@@ -477,7 +477,7 @@ class Tasmota
     # compile in-memory
     var compiled_code
     try
-      compiled_code = compile(f_name, 'file', true)
+      compiled_code = compile(f_name, 'file')
       if (compiled_code == nil)
         print(f"BRY: empty compiled file")
         return false
@@ -724,16 +724,12 @@ class Tasmota
     end
   end
 
-  # returns `true` if the network stack is connected
-  def is_network_up()
-    return tasmota.wifi()['up'] || tasmota.eth()['up']
-  end
-
   # add a closure to the list to be called when network is connected
   # or call immediately if network is already up
   def when_network_up(cl)
     self.check_not_method(cl)
-    if self.is_network_up()
+    var is_connected = tasmota.wifi()['up'] || tasmota.eth()['up']
+    if is_connected
       cl()          # call closure
     else
       if (self._wnu == nil)
@@ -747,7 +743,8 @@ class Tasmota
   # run all pending closures when network is up
   def run_network_up()
     if (self._wnu == nil)   return    end
-    if self.is_network_up()
+    var is_connected = tasmota.wifi()['up'] || tasmota.eth()['up']
+    if is_connected
       # run all closures in a safe loop
       while (size(self._wnu) > 0)
         var cl = self._wnu[0]
@@ -763,12 +760,13 @@ class Tasmota
   end
 
   def event(event_type, cmd, idx, payload, raw)
-    if (event_type == 'every_50ms')
+    import introspect
+    if event_type=='every_50ms'
       if (self._wnu) self.run_network_up() end   # capture when network becomes connected
       self.run_timers()
     end  #- first run deferred events -#
 
-    if (event_type == 'every_250ms')
+    if event_type=='every_250ms'
       self.run_cron()
     end
 
@@ -779,12 +777,11 @@ class Tasmota
       keep_going = true
     end
 
-    if   (event_type == 'cmd')  return self.exec_cmd(cmd, idx, payload)
-    elif (event_type == 'tele') return self.exec_tele(payload)
-    elif (event_type == 'rule') return self.exec_rules(payload, bool(idx))
-    elif (event_type == 'gc')   return self.gc()
+    if event_type=='cmd' return self.exec_cmd(cmd, idx, payload)
+    elif event_type=='tele' return self.exec_tele(payload)
+    elif event_type=='rule' return self.exec_rules(payload, bool(idx))
+    elif event_type=='gc' return self.gc()
     elif self._drivers
-      import introspect
       var i = 0
       while i < size(self._drivers)
         var d = self._drivers[i]
@@ -814,16 +811,6 @@ class Tasmota
     return done
   end
 
-  ######################################################################
-  # add_driver
-  #
-  # Add an instance to the dispatchin of Berry events
-  #
-  # Args:
-  #    - `d`: instance (or driver)
-  #           The events will be dispatched to this instance whenever
-  #           it has a method with the same name of the instance
-  ######################################################################
   def add_driver(d)
     if type(d) != 'instance'
       raise "value_error", "instance required"

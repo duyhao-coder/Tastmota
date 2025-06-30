@@ -412,21 +412,21 @@ static int raise_compile_error(bvm *vm)
     return 0;
 }
 
-static int m_compile_str(bvm *vm, bbool islocal)
+static int m_compile_str(bvm *vm)
 {
     int len = be_strlen(vm, 1);
     const char *src = be_tostring(vm, 1);
-    int res = be_loadbuffer_local(vm, "string", src, len, islocal);
+    int res = be_loadbuffer(vm, "string", src, len);
     if (res == BE_OK) {
         be_return(vm);
     }
     return raise_compile_error(vm);
 }
 
-static int m_compile_file(bvm *vm, bbool islocal)
+static int m_compile_file(bvm *vm)
 {
     const char *fname = be_tostring(vm, 1);
-    int res = be_loadfile_local(vm, fname, islocal);
+    int res = be_loadfile(vm, fname);
     if (res == BE_OK) {
         be_return(vm);
     } else if (res == BE_IO_ERROR) {
@@ -443,18 +443,14 @@ int be_baselib_compile(bvm *vm)
     if (be_top(vm) && be_isstring(vm, 1)) {
         if (be_top(vm) >= 2 && be_isstring(vm, 2)) {
             const char *s = be_tostring(vm, 2);
-            bbool islocal = bfalse;
-            if (be_top(vm) >= 3 && be_isbool(vm, 3)) {
-                islocal = be_tobool(vm, 3);
-            }
             if (!strcmp(s, "string")) {
-                return m_compile_str(vm, islocal);
+                return m_compile_str(vm);
             }
             if (!strcmp(s, "file")) {
-                return m_compile_file(vm, islocal);
+                return m_compile_file(vm);
             }
         } else {
-            return m_compile_str(vm, bfalse);       /* default to global context */
+            return m_compile_str(vm);
         }
     }
 #endif

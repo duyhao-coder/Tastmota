@@ -28,9 +28,7 @@ def map_gzip(source, target, env):
 
 
 if not tasmotapiolib.is_env_set(tasmotapiolib.DISABLE_MAP_GZ, env):
-    silent_action = env.Action([map_gzip])
-    silent_action.strfunction = lambda target, source, env: '' # hack to silence scons command output
-    env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", silent_action)
+    env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [map_gzip])
 
 if tasmotapiolib.is_env_set(tasmotapiolib.ENABLE_ESP32_GZ, env) or env["PIOPLATFORM"] != "espressif32":
     import time
@@ -57,7 +55,6 @@ if tasmotapiolib.is_env_set(tasmotapiolib.ENABLE_ESP32_GZ, env) or env["PIOPLATF
         ORG_FIRMWARE_SIZE = bin_file.stat().st_size
         GZ_FIRMWARE_SIZE = gzip_file.stat().st_size
 
-        print()
         if ORG_FIRMWARE_SIZE > 995326 and env["PIOPLATFORM"] != "espressif32":
             print(Fore.RED + "!!! Tasmota firmware size is too big with {} bytes. Max size is 995326 bytes !!! ".format(
                     ORG_FIRMWARE_SIZE
@@ -73,6 +70,4 @@ if tasmotapiolib.is_env_set(tasmotapiolib.ENABLE_ESP32_GZ, env) or env["PIOPLATF
             )
 
     if not tasmotapiolib.is_env_set(tasmotapiolib.DISABLE_BIN_GZ, env):
-        silent_action = env.Action([bin_gzip])
-        silent_action.strfunction = lambda target, source, env: '' # hack to silence scons command output
-        env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", silent_action)
+        env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [bin_gzip])

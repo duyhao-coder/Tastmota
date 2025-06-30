@@ -252,7 +252,9 @@ typedef union {
     uint32_t spare13 : 1;                  // bit 13
     uint32_t spare14 : 1;                  // bit 14
     uint32_t spare15 : 1;                  // bit 15
-    uint32_t json_pretty_print : 3;        // bit 16.18 (v14.6.0.1) - JSON pretty print log data no or indent
+    uint32_t spare16 : 1;                  // bit 16
+    uint32_t spare17 : 1;                  // bit 17
+    uint32_t spare18 : 1;                  // bit 18
     uint32_t dali_group_sliders : 5;       // bit 19.23 (v14.3.0.3) - (DALI) Number of group sliders 0 to 16
     uint32_t FTP_Mode : 2;                 // bit 24/25
     uint32_t tariff_forced : 2;            // bit 26/27 (v12.4.0.2) - Energy forced tariff : 0=tariff change on time, 1|2=tariff forced
@@ -840,7 +842,7 @@ typedef struct {
   uint8_t       modbus_sconfig;            // F62
   uint8_t       windmeter_measure_intvl;   // F63
 
-  uint8_t       free_f64[8];               // F64 - Decrement if adding new Setting variables just above and below
+  uint8_t       free_f64[0];               // F64 - Decrement if adding new Setting variables just above and below
 
   // Only 32 bit boundary variables below
   float         ms5837_pressure_offset;    // F6C
@@ -867,6 +869,7 @@ typedef struct {
   SysMBitfield2 mbflag2;                   // FD8
   uint32_t      shutter_button[MAX_SHUTTER_KEYS];  // FDC
   uint32_t      i2c_drivers[3];            // FEC  I2cDriver
+  uint32_t      rs485_drivers[2];
   uint32_t      cfg_timestamp;             // FF8
   uint32_t      cfg_crc32;                 // FFC
 } TSettings;

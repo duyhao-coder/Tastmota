@@ -132,10 +132,10 @@ static char* fixpath(bvm *vm, bstring *path, size_t *size)
     if (var_isclosure(func)) {
         base = str(cl->proto->source); /* get the source file path */
     } else {
-        base = "";
+        base = "/";
     }
 #else
-    base = "";
+    base = "/";
 #endif
     split = be_splitpath(base);
     *size = split - base + (size_t)str_len(path) + SUFFIX_LEN;
@@ -183,14 +183,11 @@ static int open_libfile(bvm *vm, char *path, size_t size)
         strcpy(path + size - SUFFIX_LEN, sfxs[idx]);
         res = open_script(vm, path);
     } while (idx++ < 2 && res == BE_IO_ERROR);
-#if BE_USE_SHARED_LIB
     if (res == BE_IO_ERROR) {
+#if BE_USE_SHARED_LIB
         strcpy(path + size - SUFFIX_LEN, DLL_SUFFIX);
         res = open_dllib(vm, path);
-    }
 #endif
-    if (res == BE_EXCEPTION) {
-        be_dumpexcept(vm);
     }
     be_free(vm, path, size);
     return res;
@@ -278,8 +275,8 @@ static void module_init(bvm *vm) {
     }
 }
 
-/* load module to vm->top, option to cache or not */
-int be_module_load_nocache(bvm *vm, bstring *path, bbool nocache)
+/* load module to vm->top */
+int be_module_load(bvm *vm, bstring *path)
 {
     int res = BE_OK;
     if (!load_cached(vm, path)) {
@@ -287,20 +284,12 @@ int be_module_load_nocache(bvm *vm, bstring *path, bbool nocache)
         if (res == BE_IO_ERROR)
             res = load_package(vm, path);
         if (res == BE_OK) {
-            /* on first load of the module, try running the 'init' function */
+            /* on first load of the module, try running the '()' function */
             module_init(vm);
-            if (!nocache) { /* cache the module if it is loaded successfully */
-                be_cache_module(vm, path);
-            }
+            be_cache_module(vm, path);
         }
     }
     return res;
-}
-
-/* load module to vm->top */
-int be_module_load(bvm *vm, bstring *path)
-{
-    return be_module_load_nocache(vm, path, bfalse);
 }
 
 BERRY_API bbool be_getmodule(bvm *vm, const char *k)

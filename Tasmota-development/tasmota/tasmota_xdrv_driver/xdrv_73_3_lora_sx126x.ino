@@ -46,8 +46,7 @@ bool LoraSx126xBusy(void) {
 void IRAM_ATTR LoraSx126xOnInterrupt(void);
 void LoraSx126xOnInterrupt(void) {
   // This is called after EVERY type of enabled interrupt so chk for valid receivedFlag in LoraAvailableSx126x()
-//  if (!Lora->send_flag && !Lora->received_flag && !Lora->receive_time) {
-  if (!Lora->send_flag && !Lora->received_flag) {
+  if (!Lora->send_flag && !Lora->received_flag && !Lora->receive_time) {
     Lora->receive_time = millis();
   }
   Lora->received_flag = true;              // we got a packet, set the flag
@@ -120,31 +119,29 @@ bool LoraSx126xSend(uint8_t* data, uint32_t len, bool invert) {
   return (RADIOLIB_ERR_NONE == state);
 }
 
-bool LoraSx126xConfig(bool full) {
+bool LoraSx126xConfig(void) {
+  LoRaRadio.setCodingRate(Lora->settings.coding_rate);
+  LoRaRadio.setSyncWord(Lora->settings.sync_word);
+  LoRaRadio.setPreambleLength(Lora->settings.preamble_length);
+  LoRaRadio.setCurrentLimit(Lora->settings.current_limit);
+  LoRaRadio.setCRC(Lora->settings.crc_bytes);
   LoRaRadio.setSpreadingFactor(Lora->settings.spreading_factor);
   LoRaRadio.setBandwidth(Lora->settings.bandwidth);
   LoRaRadio.setFrequency(Lora->settings.frequency);
-  if (full) {
-    LoRaRadio.setCodingRate(Lora->settings.coding_rate);
-    LoRaRadio.setSyncWord(Lora->settings.sync_word);
-    LoRaRadio.setPreambleLength(Lora->settings.preamble_length);
-    LoRaRadio.setCurrentLimit(Lora->settings.current_limit);
-    LoRaRadio.setCRC(Lora->settings.crc_bytes);
-    LoRaRadio.setOutputPower(Lora->settings.output_power);
-    if (Lora->settings.implicit_header) { 
-      LoRaRadio.implicitHeader(Lora->settings.implicit_header);
-    } else { 
-      LoRaRadio.explicitHeader();
-    }
-    LoRaRadio.invertIQ(false);
+  LoRaRadio.setOutputPower(Lora->settings.output_power);
+  if (Lora->settings.implicit_header) { 
+    LoRaRadio.implicitHeader(Lora->settings.implicit_header);
+  } else { 
+    LoRaRadio.explicitHeader();
   }
+  LoRaRadio.invertIQ(false);
   return true;
 }
 
 bool LoraSx126xInit(void) {
   LoRaRadio = new Module(Pin(GPIO_LORA_CS), Pin(GPIO_LORA_DI1), Pin(GPIO_LORA_RST), Pin(GPIO_LORA_BUSY));
   if (RADIOLIB_ERR_NONE == LoRaRadio.begin(Lora->settings.frequency)) {
-    LoraSx126xConfig(true);
+    LoraSx126xConfig();
     LoRaRadio.setDio1Action(LoraSx126xOnInterrupt);
     if (RADIOLIB_ERR_NONE == LoRaRadio.startReceive()) {
       return true;

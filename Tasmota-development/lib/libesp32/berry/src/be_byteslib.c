@@ -806,8 +806,7 @@ static int m_asstring(bvm *vm)
 {
     buf_impl attr = bytes_check_data(vm, 0);
     check_ptr(vm, &attr);
-    size_t safe_len = strnlen((const char*) attr.bufptr, attr.len);
-    be_pushnstring(vm, (const char*) attr.bufptr, safe_len);
+    be_pushnstring(vm, (const char*) attr.bufptr, attr.len);
     be_return(vm);
 }
 

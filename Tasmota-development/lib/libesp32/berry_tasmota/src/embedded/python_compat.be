@@ -8,5 +8,6 @@ python_compat.init = def (m)
     global.True = true
     global.False = false
     global.None = nil
+    global.b = bytes
     return m
 end
