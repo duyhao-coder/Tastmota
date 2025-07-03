@@ -15,7 +15,7 @@ struct O3Sensor_t
 #define O3_ADDRESS_VALUE 0x0006  // Thanh ghi chứa giá trị O3
 #define O3_FUNCTION_CODE 0x03
 #define O3_ADDRESS_CHECK 0x0100    // Dùng kiểm tra kết nối (Equipment Address)
-
+//
 bool O3isConnected()
 {
     if (!RS485.active)
