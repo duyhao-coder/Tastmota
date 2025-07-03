@@ -466,8 +466,6 @@ typedef union {
     uint8_t SO_OBIS_LINE : 1;
     uint8_t SO_TRX_INVERT : 1;
     uint8_t SO_DISS_PULL : 1;
-    uint8_t SO_NU : 1;
-    uint8_t SO_NOPAR : 1;
   };
 } SO_FLAGS;
 
@@ -1083,24 +1081,16 @@ void dump2log(void) {
   }
 }
 
-void Hexdump(uint8_t *sbuff, int32_t slen) {
-  if (slen > 0) {
-    char cbuff[slen * 3 + 10];
-    char *cp = cbuff;
-    *cp++ = '>';
-    *cp++ = ' ';
-    for (uint32_t cnt = 0; cnt < slen; cnt ++) {
-      sprintf_P(cp, PSTR("%02x "), sbuff[cnt]);
-      cp += 3;
-    }
-    AddLogData(LOG_LEVEL_INFO, cbuff);
-  } else {
-    slen = -slen;
-    char cbuff[slen + 3];
-    cbuff[slen] = 0;
-    sprintf_P(cbuff, PSTR("%s"), sbuff);
-    AddLogData(LOG_LEVEL_INFO, cbuff);
+void Hexdump(uint8_t *sbuff, uint32_t slen) {
+  char cbuff[slen*3+10];
+  char *cp = cbuff;
+  *cp++ = '>';
+  *cp++ = ' ';
+  for (uint32_t cnt = 0; cnt < slen; cnt ++) {
+    sprintf_P(cp, PSTR("%02x "), sbuff[cnt]);
+    cp += 3;
   }
+  AddLogData(LOG_LEVEL_INFO, cbuff);
 }
 
 #define DOUBLE2CHAR dtostrfd
@@ -1343,6 +1333,17 @@ double dval;
   #endif
 
     return dval;
+}
+
+uint8_t hexnibble(char chr) {
+  uint8_t rVal = 0;
+  if (isdigit(chr)) {
+    rVal = chr - '0';
+  } else  {
+    chr=toupper(chr);
+    if (chr >= 'A' && chr <= 'F') rVal = chr + 10 - 'A';
+  }
+  return rVal;
 }
 
 uint8_t sb_counter;
@@ -2127,8 +2128,8 @@ void SML_Decode(uint8_t index) {
         } else {
           if (sml_globs.mp[mindex].type == 's') {
             // sml
-            uint8_t val = sml_hexnibble(*mp++) << 4;
-            val |= sml_hexnibble(*mp++);
+            uint8_t val = hexnibble(*mp++) << 4;
+            val |= hexnibble(*mp++);
             if (val != *cp++) {
               found = 0;
             }
@@ -2195,8 +2196,8 @@ void SML_Decode(uint8_t index) {
 										dp++;
 									}
 								} else {
-									iob = sml_hexnibble(*mp++) << 4;
-									iob |= sml_hexnibble(*mp++);
+									iob = hexnibble(*mp++) << 4;
+									iob |= hexnibble(*mp++);
 								}
 								pattern[cnt] = iob;
 							}
@@ -2494,8 +2495,8 @@ void SML_Decode(uint8_t index) {
               cp += 6;
             }
             else {
-              uint8_t val = sml_hexnibble(*mp++) << 4;
-              val |= sml_hexnibble(*mp++);
+              uint8_t val = hexnibble(*mp++) << 4;
+              val |= hexnibble(*mp++);
               if (val != *cp++) {
                 found = 0;
               }
@@ -2590,7 +2591,7 @@ void SML_Decode(uint8_t index) {
               dval = sml_getvalue(cp, mindex);
             }
           } else {
-              // ebus pzem vbus or mbus or raw
+            // ebus pzem vbus or mbus or raw
             if (*mp == 'b') {
               mp++;
               uint8_t shift = *mp&7;
@@ -3997,11 +3998,7 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (meter_desc[meter].type != 'C') {
-    if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
-      if (!meter_desc[meter].client) return 0;
-    } else {
-      if (!meter_desc[meter].meter_ss) return 0;
-    }
+    if (!meter_desc[meter].meter_ss) return 0;
   }
   if (flag > 0) {
     SML_Send_Seq(meter, hstr);
@@ -4100,9 +4097,6 @@ uint32_t SML_Shift_Num(uint32_t meter, uint32_t shift) {
 
 double SML_GetVal(uint32_t index) {
   if (sml_globs.ready == false) return 0;
-  if (index == 0) {
-    return sml_globs.maxvars;
-  }
   if (index < 1 || index > sml_globs.maxvars) { index = 1;}
   return sml_globs.meter_vars[index - 1];
 }
@@ -4118,11 +4112,7 @@ int32_t SML_Set_WStr(uint32_t meter, char *hstr) {
   if (meter < 1 || meter > sml_globs.meters_used) return -1;
   meter--;
   if (meter_desc[meter].type != 'C') {
-    if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
-      if (!meter_desc[meter].client) return -2;
-    } else {
-      if (!meter_desc[meter].meter_ss) return -2;
-    }
+    if (!meter_desc[meter].meter_ss) return -2;
   }
   meter_desc[meter].script_str = hstr;
   return 0;
@@ -4419,6 +4409,7 @@ void sml_hex_asci(uint32_t mindex, char *tpowstr) {
   *tpowstr = 0;
 }
 
+
 uint8_t sml_hexnibble(char chr) {
   uint8_t rVal = 0;
   if (isdigit(chr)) {
@@ -4606,8 +4597,7 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     }
 
   }
-  if (mp->type == 'o' && !mp->so_flags.SO_NOPAR)  {
-    // insert even parity for obis mode
+  if (mp->type == 'o') {
     for (uint32_t cnt = 0; cnt < slen; cnt++) {
       sbuff[cnt] |= (CalcEvenParity(sbuff[cnt]) << 7);
     }
